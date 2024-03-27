@@ -28,17 +28,17 @@ end
 # BDF and EDF selection
 # Picking the time interval to load, measured as number of records or seconds.
 
-function pick_samples(header::BEDFHeader, records::Symbol)
+function pick_samples(header::Header, records::Symbol)
     if records == :All
-        return 1:header.nDataRecords
+        return 1:_sample_count(header)
     else
         error("Unknown symbol :$records passed. Did You mean :All?")
     end
 end
 
 # Integer interpreted as an index of a data record to be read.
-function pick_samples(header::BEDFHeader, record::Integer)
-    if 0 < record < header.nDataRecords
+function pick_samples(header::Header, record::Integer)
+    if 0 < record < _sample_count(header)
         return record:record
     else
         error("Number of a record to read should be between 1 and $(header.nDataRecords). Got $record instead.")
@@ -46,102 +46,35 @@ function pick_samples(header::BEDFHeader, record::Integer)
 end
 
 # Unitrange interpreted as an interval including records with such indexes.
-function pick_samples(header::BEDFHeader, records::UnitRange)
-    if records[1] >= 1 && records[end] <= header.nDataRecords
+function pick_samples(header::Header, records::UnitRange)
+    if records[1] >= 1 && records[end] <= _sample_count(header)
         return records
     else
-        error("Range $records does not fit in the available $(header.nDataRecords) records.")
+        error("Range $records does not fit in the available $(_sample_count(header)) records.")
     end
 end
 
 # Tuple of floats interpreted as seconds. Picking all records which parts are included
 # in the given time interval. Therefore actual data might be slightly larger then the interval.
-function pick_samples(header::BEDFHeader, records::Tuple{AbstractFloat, AbstractFloat})
-    dur =  header.recordDuration
-    signalTime = header.nDataRecords * dur
-    if 0 <= records[1] && records[2] <= signalTime
+function pick_samples(header::Header, records::Tuple{AbstractFloat, AbstractFloat})
+    dur = _sample_duration(header)
+    signalTime = dur * _sample_count(header)
+    if 0. <= records[1] && records[2] <= signalTime
         return Int64(floor(records[1]/dur))+1:Int64(ceil(records[2]/dur))
     else
         error("Time range $records does not fit the available length of the data: $signalTime")
     end
 end
 
-# EEG selection
-function pick_samples(header::EEGHeader, records::Symbol, nDataSamples::Integer)
-    if records == :All
-        return 1:nDataSamples
-    else
-        error("Unknown symbol :$records passed. Did You mean :All?")
-    end
-end
+# Range of floats should be parsed to a tuple.
+pick_samples(header::Header, records::StepRangeLen) = pick_samples(header, (records[1], records[end]))
 
-# Integer interpreted as a single sample.
-function pick_samples(header::EEGHeader, sample::Integer, nDataSamples::Integer)
-    if 0 < sample < nDataSamples
-        return sample:sample
-    else
-        error("Number of a record to read should be between 1 and $nDataSamples. Got $sample instead.")
-    end
-end
+_sample_count(header::BDFHeader) = header.nDataRecords
+_sample_count(header::EDFHeader) = header.nDataRecords
+_sample_count(header::EEGHeader) = header.common["NumberOfDataSamples"]
+_sample_count(header::SETHeader) = header.pnts
 
-# Unitrange interpreted as an interval of samples the should be read.
-function pick_samples(header::EEGHeader, samples::UnitRange, nDataSamples::Integer)
-    if samples[1] >= 1 && samples[end] <= nDataSamples
-        return samples
-    else
-        error("Range $samples does not fit in the available $nDataSamples records.")
-    end
-end
-
-# Tuple of floats interpreted as seconds. All samples fitting it will be read.
-# This follows the Julia convention, where end of an interval is also included.
-function pick_samples(header::EEGHeader, times::Tuple{AbstractFloat, AbstractFloat}, nDataSamples::Integer)
-    sRate = 1_000_000 ÷ header.common["SamplingInterval"]
-    signalTime = nDataSamples / sRate
-
-    if 0 <= times[1] && times[2] <= signalTime
-        return round(Int, (times[1]-1)*sRate+1):round(Int, times[2]*sRate)
-    else
-        error("Time range $times does not fit the available length of the data: $signalTime")
-    end
-end
-
-# SET selection
-function pick_samples(header::SETHeader, records::Symbol)
-    if records == :All
-        return 1:header.pnts
-    else
-        error("Unknown symbol :$records passed. Did You mean :All?")
-    end
-end
-
-# Integer interpreted as a single sample.
-function pick_samples(header::SETHeader, sample::Integer)
-    if 0 < sample < header.pnts
-        return sample:sample
-    else
-        error("Number of a record to read should be between 1 and $(header.pnts). Got $sample instead.")
-    end
-end
-
-# Unitrange interpreted as an interval of samples the should be read.
-function pick_samples(header::SETHeader, samples::UnitRange)
-    if samples[1] >= 1 && samples[end] <= header.pnts
-        return samples
-    else
-        error("Range $samples does not fit in the available $(header.pnts) records.")
-    end
-end
-
-# Tuple of floats interpreted as seconds. All samples fitting it will be read.
-# This follows the Julia convention, where end of an interval is also included.
-function pick_samples(header::SETHeader, times::Tuple{AbstractFloat, AbstractFloat})
-    sRate = header.srate
-    signalTime = header.pnts / sRate
-
-    if 0 <= times[1] && times[2] <= signalTime
-        return round(Int, (times[1]-1)*sRate+1):round(Int, times[2]*sRate)
-    else
-        error("Time range $times does not fit the available length of the data: $signalTime")
-    end
-end
+_sample_duration(header::BDFHeader) = header.recordDuration
+_sample_duration(header::EDFHeader) = header.recordDuration
+_sample_duration(header::EEGHeader) = 1_000_000 / header.common["SamplingInterval"]
+_sample_duration(header::SETHeader) = 1 / header.srate

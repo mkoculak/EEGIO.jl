@@ -349,6 +349,9 @@ function read_eeg_data(fid::IO, header::EEGHeader, markers::EEGMarkers, numPreci
     nDataSamples = Int64(size/nDataChannels)
     resolution = header.channels["resolution"]
 
+    # Save the number of samples in the header
+    header.common["NumberOfSamples"] = nDataSamples
+
     # Select a subset of channels/samples if user specified a narrower scope.
     chans = pick_channels(header, chanSelect)
     chans = setdiff(chans, pick_channels(header, chanIgnore))

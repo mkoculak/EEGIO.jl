@@ -101,6 +101,7 @@ function EEGHeader(sInterval::Integer, nChannels::Integer, binaryFormat::Type;
         "DataType" => "TIMEDOMAIN",
         "NumberOfChannels" => nChannels,
         "SamplingInterval" => sInterval,
+        "NumberOfSamples" => 0,
     )
 
     if binaryFormat <: Integer
