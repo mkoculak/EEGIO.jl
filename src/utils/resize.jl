@@ -31,7 +31,7 @@ function update_header(header::EEGHeader, chans::Vector)
     return newHeader
 end
 
-function update_header!(header::EEGHeader, chans)
+function update_header!(header::EEGHeader, chans::Vector)
     header.common["NumberOfChannels"] = length(chans)
 
     # Update channel specification count
@@ -43,6 +43,10 @@ function update_header!(header::EEGHeader, chans)
     for (key, val) in header.coords
         header.coords[key] = val[chans]
     end
+end
+
+function update_header!(header::EEGHeader, samples::UnitRange)
+    header.common["NumberOfSamples"] = length(samples)
 end
 
 # Functions to update EEG markers.
@@ -126,7 +130,7 @@ Returns a new EEGData object with the cropped data.
 ## Examples
 ```julia
 # Cropping the data to the first 10 seconds of the file.
-data = crop(file, (1.,10.))
+data = crop(file, (0.,10.))
 ```
 ```julia
 # Cropping the data to the first 10 samples/records of the file.
@@ -138,22 +142,11 @@ function crop(file::EEGData)
 end
 
 # Cropping based on time of the recording in seconds.
-function crop(bdf::BDF, timeSelect)
-    range = pick_samples(bdf.header, timeSelect)
-    header = update_header(bdf.header, range)
+function crop(file::EEGData, timeSelect)
+    newFile = deepcopy(file)
+    crop!(newFile, timeSelect)
 
-    sRate = bdf.header.nSampRec[1]
-    start = (range[1]-1) * sRate * bdf.header.recordDuration + 1
-    finish = range[end] * sRate * bdf.header.recordDuration
-
-    return BDF(header, bdf.data[start:finish, :], bdf.file, bdf.path)
-end
-
-function crop(eeg::EEG, timeSelect)
-    range = pick_samples(eeg.header, timeSelect, size(eeg.data,1))
-    markers = update_markers(eeg.markers, range)
-
-    return EEG(eeg.header, markers, eeg.data[range, :], eeg.file, eeg.path)
+    return newFile
 end
 
 """
@@ -170,15 +163,28 @@ function crop!(bdf::BDF, timeSelect)
     finish = range[end] * sRate * bdf.header.recordDuration
 
     bdf.data = bdf.data[start:finish, :]
+
+    return nothing
 end
 
 function crop!(eeg::EEG, timeSelect)
-    range = pick_samples(eeg.header, timeSelect, size(eeg.data,1))
+    range = pick_samples(eeg.header, timeSelect)
+    update_header!(eeg.header, range)
     update_markers!(eeg.markers, range)
 
     eeg.data = eeg.data[range, :]
+
+    return nothing
 end
 
+function crop!(set::SET, timeSelect)
+    range = pick_samples(set.header, timeSelect)
+    update_header!(set.header, range)
+
+    set.data = set.data[range, :]
+
+    return nothing
+end
 
 """
     select(file::EEGData, chanSelect)
@@ -262,21 +268,11 @@ function Base.split(file::EEGData)
     error("To split the data a timepoint or sample number is needed.")
 end
 
-function Base.split(bdf::BDF, timepoint::AbstractFloat)
-    dataLength = bdf.header.recordDuration*bdf.header.nDataRecords
-    return crop(bdf, (1., timepoint)), crop(bdf, (timepoint+1, Float64(dataLength)))
+function Base.split(file::EEGData, timepoint::AbstractFloat)
+    dataLength = _signal_duration(file.header)
+    return crop(file, (0., timepoint)), crop(file, (timepoint+1, Float64(dataLength)))
 end
 
-function Base.split(bdf::BDF, timepoint::Integer)
-    return crop(bdf, 1:timepoint), crop(bdf, timepoint+1:bdf.header.nDataRecords)
-end
-
-function Base.split(eeg::EEG, timepoint::AbstractFloat)
-    sRate = 1_000_000 / eeg.header.common["SamplingInterval"]
-    dataLength = size(eeg.data,1) / sRate
-    return crop(eeg, (1., timepoint)), crop(eeg, (timepoint+1, Float64(dataLength)))
-end
-
-function Base.split(eeg::EEG, timepoint::Integer)
-    return crop(eeg, 1:timepoint), crop(eeg, timepoint+1:size(eeg.data,1))
+function Base.split(file::EEGData, timepoint::Integer)
+    return crop(file, 1:timepoint), crop(file, timepoint+1:_sample_count(file.header))
 end

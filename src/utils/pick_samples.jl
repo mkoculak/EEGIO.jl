@@ -58,7 +58,7 @@ end
 # in the given time interval. Therefore actual data might be slightly larger then the interval.
 function pick_samples(header::Header, records::Tuple{AbstractFloat, AbstractFloat})
     dur = _sample_duration(header)
-    signalTime = dur * _sample_count(header)
+    signalTime = _signal_duration(header)
     if 0. <= records[1] && records[2] <= signalTime
         return Int64(floor(records[1]/dur))+1:Int64(ceil(records[2]/dur))
     else
@@ -71,10 +71,12 @@ pick_samples(header::Header, records::StepRangeLen) = pick_samples(header, (reco
 
 _sample_count(header::BDFHeader) = header.nDataRecords
 _sample_count(header::EDFHeader) = header.nDataRecords
-_sample_count(header::EEGHeader) = header.common["NumberOfDataSamples"]
+_sample_count(header::EEGHeader) = header.common["NumberOfSamples"]
 _sample_count(header::SETHeader) = header.pnts
 
 _sample_duration(header::BDFHeader) = header.recordDuration
 _sample_duration(header::EDFHeader) = header.recordDuration
 _sample_duration(header::EEGHeader) = 1_000_000 / header.common["SamplingInterval"]
 _sample_duration(header::SETHeader) = 1 / header.srate
+
+_signal_duration(header::Header) = _sample_count(header) * _sample_duration(header)

@@ -357,7 +357,7 @@ function read_eeg_data(fid::IO, header::EEGHeader, markers::EEGMarkers, numPreci
     chans = setdiff(chans, pick_channels(header, chanIgnore))
     nChannels = length(chans)
 
-    samples = pick_samples(header, timeSelect, nDataSamples)
+    samples = pick_samples(header, timeSelect)
     nSamples = length(samples)
 
     # Update header and markers to match the subsets
