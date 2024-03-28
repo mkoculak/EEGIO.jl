@@ -364,7 +364,7 @@ function read_eeg_data(fid::IO, header::EEGHeader, markers::EEGMarkers, numPreci
     update_header!(header, chans)
     update_markers!(markers, samples)
 
-    raw = read_method(fid, method, Matrix{header.binary}, (nDataChannels, nDataSamples))
+    raw = _read_method(fid, method, Matrix{header.binary}, (nDataChannels, nDataSamples))
     data = Array{numPrecision}(undef, (nSamples, nChannels))
 
     convert_data!(raw, data, header.binary, nDataChannels, nDataSamples, samples, chans, resolution, bytes, tasks)

@@ -1,5 +1,5 @@
 # Decide which file access method to use
-function read_method(fid::IO, method, type, shape)
+function _read_method(fid::IO, method, type, shape)
     if method == :Direct
         return fid
     elseif method == :Mmap
@@ -10,11 +10,11 @@ function read_method(fid::IO, method, type, shape)
 end
 
 # Helper functions for decoding string and numerical header entries
-decodeString(fid, size) = strip(ascii(String(read!(fid, Array{UInt8}(undef, size)))))
-decodeNumber(fid, numType, size) = parse(numType, ascii(String(read!(fid, Array{UInt8}(undef, size)))))
+_decodeString(fid, size) = strip(ascii(String(read!(fid, Array{UInt8}(undef, size)))))
+_decodeNumber(fid, numType, size) = parse(numType, ascii(String(read!(fid, Array{UInt8}(undef, size)))))
 
 # Helper function to decode channel specific string entries
-function decodeChanStrings(fid, nChannels, size)
+function _decodeChanStrings(fid, nChannels, size)
     arr = Array{String}(undef, nChannels)
     buf = read(fid, nChannels*size)
     for i=eachindex(arr)
@@ -24,7 +24,7 @@ function decodeChanStrings(fid, nChannels, size)
 end
 
 # Helper function to decode channel specific numerical entries
-function decodeChanNumbers(fid, numType, nChannels, size)
+function _decodeChanNumbers(fid, numType, nChannels, size)
     arr = Array{numType}(undef, nChannels)
     buf = read(fid, nChannels*size)
     for i=eachindex(arr)
@@ -34,7 +34,7 @@ function decodeChanNumbers(fid, numType, nChannels, size)
 end
 
 # Write the general data information
-function write_record(fid, field, fieldLength; default="")
+function _write_record(fid, field, fieldLength; default="")
     # Prepare the entry.
     if field == ""
         record = rpad(string(default), fieldLength)
@@ -51,7 +51,7 @@ function write_record(fid, field, fieldLength; default="")
 end
 
 # Write the chennel specific information
-function write_channel_records(fid, nChannels, field, fieldLength; default="")
+function _write_channel_records(fid, nChannels, field, fieldLength; default="")
     for chan in 1:nChannels
         #Prepare the entry for each channel.
         if field == ""
@@ -70,7 +70,7 @@ function write_channel_records(fid, nChannels, field, fieldLength; default="")
 end
 
 # Calculate scaling and offsets for EDF/BDF data while checking if including them makes sense.
-function resolve_offsets(header, addOffset, numPrecision)
+function _resolve_offsets(header, addOffset, numPrecision)
     if addOffset & (numPrecision <: Integer)
         @warn "Reading data as integers is not compatible with scaling and offset correction,
          so it will be omitted. To get corrected data, use floating point output, e.g. NumPrecision=Float64.
@@ -81,7 +81,7 @@ function resolve_offsets(header, addOffset, numPrecision)
 
     if addOffset
         scaleFactors = numPrecision.(header.physMax-header.physMin)./(header.digMax-header.digMin)
-        offsets = get_offsets(header, numPrecision, scaleFactors)
+        offsets = _get_offsets(header, numPrecision, scaleFactors)
     else
         scaleFactors = ones(numPrecision, header.nChannels)
         offsets = numPrecision.(header.physMin .* 0)
@@ -90,10 +90,10 @@ function resolve_offsets(header, addOffset, numPrecision)
     return scaleFactors, offsets
 end
 
-function get_offsets(header, numPrecision::Type{ <: AbstractFloat}, scaleFactors)
+function _get_offsets(header, numPrecision::Type{ <: AbstractFloat}, scaleFactors)
     return numPrecision.(header.physMin .- (header.digMin .* scaleFactors))
 end
 
-function get_offsets(header, numPrecision::Type{ <: Integer}, scaleFactors)
+function _get_offsets(header, numPrecision::Type{ <: Integer}, scaleFactors)
     return round.(numPrecision, header.physMin .- (header.digMin .* scaleFactors))
 end

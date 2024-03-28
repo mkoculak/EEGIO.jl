@@ -36,7 +36,7 @@ end
 
 # Picking the channel for which an indice was passed.
 function pick_channels(header::Header, channel::Integer)
-    nChannels, chanLabels = channel_info(header)
+    nChannels, chanLabels = _channel_info(header)
     if channel in 1:nChannels
         return [channel]
     else
@@ -46,7 +46,7 @@ end
 
 # Picking all the channels which indices are included in the range.
 function pick_channels(header::Header, channels::UnitRange)
-    nChannels, chanLabels = channel_info(header)
+    nChannels, chanLabels = _channel_info(header)
     if channels[1] >= 1 && channels[end] <= nChannels
         return collect(channels)
     else
@@ -56,7 +56,7 @@ end
 
 # Picking all channels that match the provided string or regex expression.
 function pick_channels(header::Header, channels::Union{String, Regex})
-    nChannels, chanLabels = channel_info(header)
+    nChannels, chanLabels = _channel_info(header)
     picks = chanLabels[occursin.(channels, chanLabels)]
     if isempty(picks)
         error("No requested channel found in the data.")
@@ -67,7 +67,7 @@ end
 # Picking all channels from the provided vector that exist in the data.
 # Warning is thrown if vector contains names that are absent in the data.
 function pick_channels(header::Header, channels::Vector{String})
-    nChannels, chanLabels = channel_info(header)
+    nChannels, chanLabels = _channel_info(header)
     absent = (channels[channels .∉ [chanLabels]])
     present = (channels[channels .∈ [chanLabels]])
     picks = indexin(present, chanLabels)
@@ -82,7 +82,7 @@ end
 
 # Picking all or none of the channels. Using symbols as shortcuts and useful defaults.
 function pick_channels(header::Header, channels::Symbol)
-    nChannels, chanLabels = channel_info(header)
+    nChannels, chanLabels = _channel_info(header)
     if channels == :All
         return 1:nChannels
     elseif channels == :None
@@ -92,7 +92,7 @@ function pick_channels(header::Header, channels::Symbol)
     end
 end
 
-channel_info(header::BDFHeader) = header.nChannels, header.chanLabels
-channel_info(header::EDFHeader) = header.nChannels, header.chanLabels
-channel_info(header::EEGHeader) = header.common["NumberOfChannels"], header.channels["name"]
-channel_info(header::SETHeader) = header.nbchan, header.chanlocs.labels
+_channel_info(header::BDFHeader) = header.nChannels, header.chanLabels
+_channel_info(header::EDFHeader) = header.nChannels, header.chanLabels
+_channel_info(header::EEGHeader) = header.common["NumberOfChannels"], header.channels["name"]
+_channel_info(header::SETHeader) = header.nbchan, header.chanlocs.labels

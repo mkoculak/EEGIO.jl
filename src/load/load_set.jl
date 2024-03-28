@@ -285,7 +285,7 @@ function read_set_data(rawData::IO, header::SETHeader, numPrecision, chanSelect,
     samples = pick_samples(header, timeSelect)
     nSamples = length(samples)
 
-    raw = read_method(rawData, method, Vector{dataType}, rawSize)
+    raw = _read_method(rawData, method, Vector{dataType}, rawSize)
     data = Array{numPrecision}(undef, nSamples, nChannels)
 
     resolution = ones(numPrecision, rawChans)

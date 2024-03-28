@@ -22,27 +22,27 @@ function write_edf_header(fid, edf::EDF)
     
     header = edf.header
 
-    write_record(fid, header.version, 8)
-    write_record(fid, header.patientID,80)
-    write_record(fid, header.recordingID, 80)
-    write_record(fid, header.startDate, 8)
-    write_record(fid, header.startTime, 8)
-    write_record(fid, header.nBytes, 8)
-    write_record(fid, header.reserved44, 44)
-    write_record(fid, header.nDataRecords, 8)
-    write_record(fid, header.recordDuration, 8)
-    write_record(fid, header.nChannels, 4)
+    _write_record(fid, header.version, 8)
+    _write_record(fid, header.patientID,80)
+    _write_record(fid, header.recordingID, 80)
+    _write_record(fid, header.startDate, 8)
+    _write_record(fid, header.startTime, 8)
+    _write_record(fid, header.nBytes, 8)
+    _write_record(fid, header.reserved44, 44)
+    _write_record(fid, header.nDataRecords, 8)
+    _write_record(fid, header.recordDuration, 8)
+    _write_record(fid, header.nChannels, 4)
     chans = header.nChannels
-    write_channel_records(fid, chans, header.chanLabels, 16)
-    write_channel_records(fid, chans, header.transducer, 80)
-    write_channel_records(fid, chans, header.physDim, 8)
-    write_channel_records(fid, chans, header.physMin, 8)
-    write_channel_records(fid, chans, header.physMax, 8)
-    write_channel_records(fid, chans, Int.(header.digMin), 8)
-    write_channel_records(fid, chans, Int.(header.digMax), 8)
-    write_channel_records(fid, chans, header.prefilt, 80)
-    write_channel_records(fid, chans, header.nSampRec, 8)
-    write_channel_records(fid, chans, header.reserved32, 32)
+    _write_channel_records(fid, chans, header.chanLabels, 16)
+    _write_channel_records(fid, chans, header.transducer, 80)
+    _write_channel_records(fid, chans, header.physDim, 8)
+    _write_channel_records(fid, chans, header.physMin, 8)
+    _write_channel_records(fid, chans, header.physMax, 8)
+    _write_channel_records(fid, chans, Int.(header.digMin), 8)
+    _write_channel_records(fid, chans, Int.(header.digMax), 8)
+    _write_channel_records(fid, chans, header.prefilt, 80)
+    _write_channel_records(fid, chans, header.nSampRec, 8)
+    _write_channel_records(fid, chans, header.reserved32, 32)
 end
 
 function write_edf_data(fid, header, data, useOffset, method, tasks)
@@ -53,7 +53,7 @@ function write_edf_data(fid, header, data, useOffset, method, tasks)
     duration = header.recordDuration
     samples = header.nSampRec
 
-    output = read_method(fid, method, Vector{Int16}, sum(records .* samples))
+    output = _read_method(fid, method, Vector{Int16}, sum(records .* samples))
 
     write_edf_data(output, data, records, samples, channels, scaleFactors, offsets, tasks)
 end

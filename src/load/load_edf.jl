@@ -95,28 +95,28 @@ Read the header of a EDF file.
 """
 function read_edf_header(fid::IO)
     # Read the general recording data
-    version =           decodeString(fid, 8)
-    patientID =         decodeString(fid, 80)
-    recordingID =       decodeString(fid, 80)
-    startDate =         decodeString(fid, 8)
-    startTime =         decodeString(fid, 8)
-    nBytes =            decodeNumber(fid, Int64, 8)
-    reserved44 =        decodeString(fid, 44)
-    nDataRecords =      decodeNumber(fid, Int64, 8)
-    recordDuration =    decodeNumber(fid, Float64, 8)
-    nChannels =         decodeNumber(fid, Int64, 4)
+    version =           _decodeString(fid, 8)
+    patientID =         _decodeString(fid, 80)
+    recordingID =       _decodeString(fid, 80)
+    startDate =         _decodeString(fid, 8)
+    startTime =         _decodeString(fid, 8)
+    nBytes =            _decodeNumber(fid, Int64, 8)
+    reserved44 =        _decodeString(fid, 44)
+    nDataRecords =      _decodeNumber(fid, Int64, 8)
+    recordDuration =    _decodeNumber(fid, Float64, 8)
+    nChannels =         _decodeNumber(fid, Int64, 4)
 
     # Read the data channel specific information
-    chanLabels =    decodeChanStrings(fid, nChannels, 16)
-    transducer =    decodeChanStrings(fid, nChannels, 80)
-    physDim =       decodeChanStrings(fid, nChannels, 8)
-    physMin =       decodeChanNumbers(fid, Float64, nChannels, 8)
-    physMax =       decodeChanNumbers(fid, Float64, nChannels, 8)
-    digMin =        decodeChanNumbers(fid, Float64, nChannels, 8)
-    digMax =        decodeChanNumbers(fid, Float64, nChannels, 8)
-    prefilt =       decodeChanStrings(fid, nChannels, 80)
-    nSampRec =      decodeChanNumbers(fid, Int64, nChannels, 8)
-    reserved32 =    decodeChanStrings(fid, nChannels, 32)
+    chanLabels =    _decodeChanStrings(fid, nChannels, 16)
+    transducer =    _decodeChanStrings(fid, nChannels, 80)
+    physDim =       _decodeChanStrings(fid, nChannels, 8)
+    physMin =       _decodeChanNumbers(fid, Float64, nChannels, 8)
+    physMax =       _decodeChanNumbers(fid, Float64, nChannels, 8)
+    digMin =        _decodeChanNumbers(fid, Float64, nChannels, 8)
+    digMax =        _decodeChanNumbers(fid, Float64, nChannels, 8)
+    prefilt =       _decodeChanStrings(fid, nChannels, 80)
+    nSampRec =      _decodeChanNumbers(fid, Int64, nChannels, 8)
+    reserved32 =    _decodeChanStrings(fid, nChannels, 32)
 
     return EDFHeader(version, patientID, recordingID, startDate, startTime, nBytes, 
     reserved44, nDataRecords, recordDuration, nChannels, chanLabels, transducer, 
@@ -128,7 +128,7 @@ function read_edf_data(fid::IO, header::EDFHeader, addOffset, numPrecision, chan
     allSamples = header.nDataRecords .* header.nSampRec
     recSamples = sum(header.nSampRec)
 
-    scaleFactors, offsets = resolve_offsets(header, addOffset, numPrecision)
+    scaleFactors, offsets = _resolve_offsets(header, addOffset, numPrecision)
 
     # Limiting the number of channels and records to a requested subset.
     records = pick_samples(header, timeSelect)
@@ -136,7 +136,7 @@ function read_edf_data(fid::IO, header::EDFHeader, addOffset, numPrecision, chan
     chans = setdiff(chans, pick_channels(header, chanIgnore))
 
     # Decide how to access the datafile
-    raw = read_method(fid, method, Vector{Int16}, sum(allSamples))
+    raw = _read_method(fid, method, Vector{Int16}, sum(allSamples))
     data = [Vector{numPrecision}(undef, len) for len in length(records) .* header.nSampRec[chans]]
 
     read_edf_data!(raw, data, header, recSamples, records, chans, scaleFactors, offsets, tasks)

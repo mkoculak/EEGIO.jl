@@ -103,28 +103,28 @@ Read the header of a BDF file.
 function read_bdf_header(fid::IO)
     # Read the general recording data
     idCodeNonASCII =    Int(read(fid, UInt8))
-    idCode =            decodeString(fid, 7)
-    subID =             decodeString(fid, 80)
-    recID =             decodeString(fid, 80)
-    startDate =         decodeString(fid, 8)
-    startTime =         decodeString(fid, 8)
-    nBytes =            decodeNumber(fid, Int64, 8)
-    versionDataFormat = decodeString(fid, 44)
-    nDataRecords =      decodeNumber(fid, Int64, 8)
-    recordDuration =    decodeNumber(fid, Int64, 8)
-    nChannels =         decodeNumber(fid, Int64, 4)
+    idCode =            _decodeString(fid, 7)
+    subID =             _decodeString(fid, 80)
+    recID =             _decodeString(fid, 80)
+    startDate =         _decodeString(fid, 8)
+    startTime =         _decodeString(fid, 8)
+    nBytes =            _decodeNumber(fid, Int64, 8)
+    versionDataFormat = _decodeString(fid, 44)
+    nDataRecords =      _decodeNumber(fid, Int64, 8)
+    recordDuration =    _decodeNumber(fid, Int64, 8)
+    nChannels =         _decodeNumber(fid, Int64, 4)
 
     # Read the data channel specific information
-    chanLabels =    decodeChanStrings(fid, nChannels, 16)
-    transducer =    decodeChanStrings(fid, nChannels, 80)
-    physDim =       decodeChanStrings(fid, nChannels, 8)
-    physMin =       decodeChanNumbers(fid, Int64, nChannels, 8)
-    physMax =       decodeChanNumbers(fid, Int64, nChannels, 8)
-    digMin =        decodeChanNumbers(fid, Int64, nChannels, 8)
-    digMax =        decodeChanNumbers(fid, Int64, nChannels, 8)
-    prefilt =       decodeChanStrings(fid, nChannels, 80)
-    nSampRec =      decodeChanNumbers(fid, Int64, nChannels, 8)
-    reserved =      decodeChanStrings(fid, nChannels, 32)
+    chanLabels =    _decodeChanStrings(fid, nChannels, 16)
+    transducer =    _decodeChanStrings(fid, nChannels, 80)
+    physDim =       _decodeChanStrings(fid, nChannels, 8)
+    physMin =       _decodeChanNumbers(fid, Int64, nChannels, 8)
+    physMax =       _decodeChanNumbers(fid, Int64, nChannels, 8)
+    digMin =        _decodeChanNumbers(fid, Int64, nChannels, 8)
+    digMax =        _decodeChanNumbers(fid, Int64, nChannels, 8)
+    prefilt =       _decodeChanStrings(fid, nChannels, 80)
+    nSampRec =      _decodeChanNumbers(fid, Int64, nChannels, 8)
+    reserved =      _decodeChanStrings(fid, nChannels, 32)
 
     return BDFHeader(idCodeNonASCII, idCode, subID, recID, startDate, startTime, nBytes, 
     versionDataFormat, nDataRecords, recordDuration, nChannels, chanLabels, transducer, 
@@ -146,7 +146,7 @@ function read_bdf_data(fid::IO, header::BDFHeader, addOffset, numPrecision, chan
     However, for compatibility with other EEG software, adding offset is the default.
     It can be switched off through setting the parameter offset=false.
     =#
-    scaleFactors, offsets = resolve_offsets(header, addOffset, numPrecision)
+    scaleFactors, offsets = _resolve_offsets(header, addOffset, numPrecision)
     
     # Limiting the number of channels and records to a requested subset.
     records = pick_samples(header, timeSelect)
@@ -154,7 +154,7 @@ function read_bdf_data(fid::IO, header::BDFHeader, addOffset, numPrecision, chan
     chans = setdiff(chans, pick_channels(header, chanIgnore))
     chans, statusIdx = check_status(header, chans)
 
-    raw = read_method(fid, method, Vector{UInt8}, 3*header.nDataRecords*nChannels*srate)
+    raw = _read_method(fid, method, Vector{UInt8}, 3*header.nDataRecords*nChannels*srate)
 
     data = Array{numPrecision}(undef, (srate*length(records),length(chans)));
     if readStatus
