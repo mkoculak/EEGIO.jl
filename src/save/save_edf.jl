@@ -15,7 +15,7 @@ function write_edf(fid::IO, edf::EDF; useOffset=true, method=:Direct, tasks=1)
     # Write the header
     write_edf_header(fid, edf)
 
-    write_edf_data(fid, edf.header, edf.data, useOffset, method, tasks=1)
+    write_edf_data(fid, edf.header, edf.data, useOffset, method, tasks)
 end
 
 function write_edf_header(fid, edf::EDF)
@@ -38,19 +38,18 @@ function write_edf_header(fid, edf::EDF)
     _write_channel_records(fid, chans, header.physDim, 8)
     _write_channel_records(fid, chans, header.physMin, 8)
     _write_channel_records(fid, chans, header.physMax, 8)
-    _write_channel_records(fid, chans, Int.(header.digMin), 8)
-    _write_channel_records(fid, chans, Int.(header.digMax), 8)
+    _write_channel_records(fid, chans, header.digMin, 8)
+    _write_channel_records(fid, chans, header.digMax, 8)
     _write_channel_records(fid, chans, header.prefilt, 80)
     _write_channel_records(fid, chans, header.nSampRec, 8)
     _write_channel_records(fid, chans, header.reserved32, 32)
 end
 
 function write_edf_data(fid, header, data, useOffset, method, tasks)
-    scaleFactors, offsets = resolve_offsets(header, useOffset, Float64)
+    scaleFactors, offsets = _resolve_offsets(header, useOffset, Float64)
 
     records = header.nDataRecords
     channels = header.nChannels
-    duration = header.recordDuration
     samples = header.nSampRec
 
     output = _read_method(fid, method, Vector{Int16}, sum(records .* samples))
@@ -62,12 +61,12 @@ end
 function write_edf_data(output::IO, data, records, samples, channels, scaleFactors, offsets, tasks)
     
     buffer = Vector{Int16}(undef, sum(samples))
-    recIdx = TaskLocalValue{Vector{Int}}(() -> Vector{Int}(undef, length(samples)))
+    recIdx = Vector{Int}(undef, length(samples))
     recCum = 0
 
     for record in 1:records
-        recIdx[] .= (record-1) .* samples
-        write_record(buffer, data, recIdx[], recCum, samples, channels, scaleFactors, offsets)
+        recIdx .= (record-1) .* samples
+        write_record(buffer, data, recIdx, recCum, samples, channels, scaleFactors, offsets)
 
         write(output, buffer)
     end
@@ -75,15 +74,17 @@ end
 
 # Multithreaded write using Mmap
 function write_edf_data(output::Vector{Int16}, data, records, samples, channels, scaleFactors, offsets, tasks)
-
-    recIdx = TaskLocalValue{Vector{Int}}(() -> Vector{Int}(undef, length(samples)))
-    recCum = TaskLocalValue{Int}(() -> 0)
     
     @tasks for record in 1:records
-        @set scheduler = DynamicScheduler(; nchunks=tasks)
-        recIdx[] .= (record-1) .* samples
-        recCum[] = sum(recIdx[])
-        write_record(output, data, recIdx[], recCum[], samples, channels, scaleFactors, offsets)
+        @set ntasks = tasks
+        @local begin
+            recIdx = Vector{Int}(undef, length(samples))
+            recCum = 0
+        end
+
+        recIdx .= (record-1) .* samples
+        recCum = sum(recIdx)
+        write_record(output, data, recIdx, recCum, samples, channels, scaleFactors, offsets)
     end
     # Necessary to properly close the mmaped file.
     finalize(output)

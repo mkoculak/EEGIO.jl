@@ -17,7 +17,7 @@ _decodeNumber(fid, numType, size) = parse(numType, ascii(String(read!(fid, Array
 function _decodeChanStrings(fid, nChannels, size)
     arr = Array{String}(undef, nChannels)
     buf = read(fid, nChannels*size)
-    for i=eachindex(arr)
+    for i = eachindex(arr)
         arr[i] = strip(ascii(String(buf[(size*(i-1)+1):(size*i)])))
     end
     return arr
@@ -27,7 +27,7 @@ end
 function _decodeChanNumbers(fid, numType, nChannels, size)
     arr = Array{numType}(undef, nChannels)
     buf = read(fid, nChannels*size)
-    for i=eachindex(arr)
+    for i = eachindex(arr)
         arr[i] = parse(numType, ascii(String(buf[(size*(i-1)+1):(size*i)])))
     end
     return arr
@@ -74,13 +74,19 @@ function _resolve_offsets(header, addOffset, numPrecision)
     if addOffset & (numPrecision <: Integer)
         @warn "Reading data as integers is not compatible with scaling and offset correction,
          so it will be omitted. To get corrected data, use floating point output, e.g. NumPrecision=Float64.
-         To hide this warning include addOffest=false in the read call. $(time_ns())"
+         To hide this warning include addOffest=false in the read call."
 
         addOffset = false
     end
 
     if addOffset
-        scaleFactors = numPrecision.(header.physMax-header.physMin)./(header.digMax-header.digMin)
+        # Correct for misspecified physical or digital spans
+        physSpan = header.physMax .- header.physMin
+        replace!(x -> x <= 0 ? 1 : x, physSpan)
+        digSpan = header.digMax .- header.digMin
+        replace!(x -> x <= 0 ? 1 : x, physSpan)
+
+        scaleFactors = numPrecision.(physSpan ./ digSpan)
         offsets = _get_offsets(header, numPrecision, scaleFactors)
     else
         scaleFactors = ones(numPrecision, header.nChannels)

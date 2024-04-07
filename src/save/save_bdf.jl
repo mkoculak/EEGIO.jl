@@ -12,17 +12,20 @@ function write_bdf(f::String, bdf::BDF; overwrite=false, kwargs...)
     end
 end
 
-function write_bdf(fid::IO, bdf::BDF; useOffset=true, method="mmap", chunk=512_000)
+function write_bdf(fid::IO, bdf::BDF; useOffset=true, method=:Direct, buffer=512_000, tasks=1)
     # Write the header
-    write_bdf_header(fid, bdf)
+    newHeader = write_bdf_header(fid, bdf)
 
     # Write the data
-    write_bdf_data(fid, bdf.header, bdf.data, useOffset, method, chunk)
+    write_bdf_data(fid, bdf, newHeader, useOffset, method, buffer, tasks)
 end
 
 function write_bdf_header(fid, bdf::BDF)
 
-    header = bdf.header
+    header = deepcopy(bdf.header)
+
+    # Add Status channel data
+    _add_status!(header)
 
     write(fid, UInt8(header.idCodeNonASCII))
     _write_record(fid, header.idCode, 7, default="BIOSEMI")
@@ -46,101 +49,153 @@ function write_bdf_header(fid, bdf::BDF)
     _write_channel_records(fid, chans, header.prefilt, 80)
     _write_channel_records(fid, chans, header.nSampRec, 8)
     _write_channel_records(fid, chans, header.reserved, 32)
+
+    return header
+end
+
+function _add_status!(header)
+    header.nChannels += 1
+    push!(header.chanLabels, "Status")
+    push!(header.transducer, "Trigger and Status")
+    push!(header.physDim, "Boolean")
+    push!(header.physMin, -8388608)
+    push!(header.physMax, 8388607)
+    push!(header.digMin, -8388608)
+    push!(header.digMax, 8388607)
+    push!(header.prefilt, "No filtering")
+    push!(header.nSampRec, 2048)
+    push!(header.reserved, "Reserved")
 end
 
 # Write data into a file.
-function write_bdf_data(fid, header, data, useOffset, method, chunk)
-    scaleFactor = Float32.(header.physMax-header.physMin)./(header.digMax-header.digMin)
+function write_bdf_data(fid, bdf, header, useOffset, method, buffer, tasks)
 
-    # Insert the offset for compatibility with other software
-    if useOffset
-        offset = Float32.(header.physMin .- (header.digMin .* scaleFactor))
-    else
-        offset = Int32.(header.physMin .* 0)
-    end
+    scaleFactors, offsets = _resolve_offsets(header, useOffset, eltype(bdf.data))
 
     records = header.nDataRecords
     channels = header.nChannels
     srate = header.nSampRec[1]
     duration = header.recordDuration
+    samples = srate * duration
 
-    if method == "mmap"
-        write_mmap(fid, data, records, channels, srate, duration, scaleFactor, offset)
-    else method == "sequential"
-        write_seq(fid, data, records, channels, srate, duration, scaleFactor, offset, chunk)
+    if isempty(bdf.status)
+        status = Status(zeros(Int8, samples), zeros(Int8, samples), zeros(Int8, samples))
+    else
+        status = bdf.status
     end
+
+    output = _read_method(fid, method, Vector{UInt8}, records * channels * samples * 3)
+
+    write_bdf_data(output, bdf.data, status, records, channels, samples, scaleFactors, offsets, buffer, tasks)
+
+    return nothing
 end
 
-function write_mmap(fid, data, records, channels, srate, duration, scaleFactor, offset)
-    samples = srate * duration
-    recordSize = channels*srate*duration*3
+# Write using memory mapping
+function write_bdf_data(output::Vector{UInt8}, data, status, records, channels, samples, scaleFactors, offsets, buffer, tasks)
     
-    output = Mmap.mmap(fid, Vector{UInt8}, (records*recordSize))
-    Threads.@threads for rec in 1:records
-        for chan in 1:channels
-            for sample in 1:samples
-                @inbounds @fastmath pointer = (sample + samples*(chan-1) + samples*channels*(rec-1))*3-2
-                recode_value(data, output, pointer, rec, srate, sample, chan, scaleFactor, offset)
-            end
-        end
+    @tasks for rec in 1:records
+        @set ntasks = tasks
+
+        write_record(output, data, status, rec, channels, samples, scaleFactors, offsets)
     end
+
     # Necessary to properly close the mmaped file.
     finalize(output)
     GC.gc(false)
+
+    return nothing
 end
 
-function write_seq(fid, data, records, channels, srate, duration, scaleFactor, offset, chunk)
-    recordSize = channels*srate*duration*3
+function write_record(output, data, status::BDFStatus, rec, channels, samples, scaleFactors, offsets)
+    rIdx = (rec - 1) * channels * samples
+    dataIdx = (rec - 1) * samples
+
+    # Skip the last channel as it is the status channel
+    for chan in 1:(channels - 1)
+        cIdx = (chan - 1) * samples
+        for sample in 1:samples
+            pointer = (rIdx + cIdx + sample - 1) * 3 + 1
+            dIdx = dataIdx + sample
+            recode_value!(data, output, pointer, dIdx, chan, scaleFactors, offsets)
+        end
+    end
+
+    # Write the status channel
+    cIdx = (channels - 1) * samples
+    for sample in 1:samples
+        pointer = (rIdx + cIdx + sample - 1) * 3 + 1
+        dIdx = dataIdx + sample
+        recode_value!(status, dIdx, output, pointer)
+    end
+
+    return nothing
+end
+
+function write_bdf_data(fid::IO, data, status, records, channels, samples, scaleFactors, offsets, buffer, tasks)
+    recordSize = channels * samples * 3
 
     # Testing different methods of writing to disk has shown that writing in chunks,
     # is more efficient than writing the whole array at once.
     # Here we determine the size of chunk that is a multiple of record size and closest
     # to 512k which is used as a default.
-    chunk = chunk + recordSize/2
-    chunk = Int(chunk - chunk%recordSize)
-    if chunk == 0
-        chunk = recordSize
+    buffer = buffer + recordSize/2
+    buffer = Int(buffer - buffer%recordSize)
+    if buffer == 0
+        buffer = recordSize
     end
-    recNum = Int(chunk/recordSize)
+    recNum = Int(buffer/recordSize)
     
-    output = Vector{UInt8}(undef,chunk)
+    output = Vector{UInt8}(undef, buffer)
 
-    for recStart = 1:recNum:records
-        if (recStart + recNum - 1) <= records
-            recEnd = recStart + recNum - 1
-        else
-            recEnd = records
-        end
-        
+    for chunk in collect(chunks(1:records, size=recNum))
         pointer = 1
-        for rec in recStart:recEnd
-            for chan in 1:channels
-                for sample in 1:(srate * duration)
-                    recode_value(data, output, pointer, rec, srate, sample, chan, scaleFactor, offset)
+        for rec in chunk
+            rIdx = (rec-1) * samples
+            # Skip the last channel as it is the status channel
+            for chan in 1:(channels - 1)
+                for sample in 1:samples
+                    dIdx = rIdx + sample
+                    recode_value!(data, output, pointer, dIdx, chan, scaleFactors, offsets)
                     pointer += 3
                 end
             end
+
+            # Write the status channel
+            for sample in 1:samples
+                dIdx = rIdx + sample
+                recode_value!(status, dIdx, output, pointer)
+                pointer += 3
+            end
         end
-        @inbounds write(fid, view(output, 1:(recEnd-recStart+1)*recordSize))
+        @inbounds write(fid, view(output, 1:(length(chunk)*recordSize)))
     end
+
+    return nothing
 end
 
-function recode_value(data::Matrix{Int32}, output::Vector{UInt8}, pointer, rec, srate, sample, chan, scaleFactor, offset)
-    @inbounds output[pointer] = data[(rec-1)*srate+sample, chan] % UInt8
-    @inbounds output[pointer+1] = (data[(rec-1)*srate+sample, chan] >> 8) % UInt8
-    @inbounds output[pointer+2] = (data[(rec-1)*srate+sample, chan] >> 16) % UInt8
+function recode_value!(data::Matrix{Int32}, output::Vector{UInt8}, pointer, dIdx, chan, scaleFactors, offsets)
+    @inbounds output[pointer] = data[dIdx, chan] % UInt8
+    @inbounds output[pointer+1] = (data[dIdx, chan] >> 8) % UInt8
+    @inbounds output[pointer+2] = (data[dIdx, chan] >> 16) % UInt8
 end
 
-function recode_value(data::Matrix{Int64}, output::Vector{UInt8}, pointer, rec, srate, sample, chan, scaleFactor, offset)
-    @inbounds value = round(Int32, data[(rec-1)*srate+sample, chan])
+function recode_value!(data::Matrix{Int64}, output::Vector{UInt8}, pointer, dIdx, chan, scaleFactors, offsets)
+    @inbounds value = round(Int32, data[dIdx, chan])
     @inbounds output[pointer] = value % UInt8
     @inbounds output[pointer+1] = (value >> 8) % UInt8
     @inbounds output[pointer+2] = (value >> 16) % UInt8
 end
 
-function recode_value(data::Matrix{<:AbstractFloat}, output::Vector{UInt8}, pointer, rec, srate, sample, chan, scaleFactor::Vector{Float32}, offset::Vector{Float32})
-    @inbounds @fastmath value = round(Int32, ((data[(rec-1)*srate+sample, chan]-offset[chan])/scaleFactor[chan]))
+function recode_value!(data::Matrix{<:AbstractFloat}, output::Vector{UInt8}, pointer, dIdx, chan, scaleFactors, offsets)
+    @inbounds @fastmath value = round(Int32, ((data[dIdx, chan]-offsets[chan])/scaleFactors[chan]))
     @inbounds output[pointer] = value % UInt8
     @inbounds output[pointer+1] = (value >> 8) % UInt8
     @inbounds output[pointer+2] = (value >> 16) % UInt8
+end
+
+function recode_value!(status::BDFStatus, dIdx, output::Vector{UInt8}, pointer)
+    @inbounds output[pointer] = status.low[dIdx]
+    @inbounds output[pointer+1] = status.high[dIdx]
+    @inbounds output[pointer+2] = status.status[dIdx]
 end

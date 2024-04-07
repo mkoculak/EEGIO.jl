@@ -152,16 +152,17 @@ function read_bdf_data(fid::IO, header::BDFHeader, addOffset, numPrecision, chan
     records = pick_samples(header, timeSelect)
     chans = pick_channels(header, chanSelect)
     chans = setdiff(chans, pick_channels(header, chanIgnore))
-    chans, statusIdx = check_status(header, chans)
 
-    raw = _read_method(fid, method, Vector{UInt8}, 3*header.nDataRecords*nChannels*srate)
-
-    data = Array{numPrecision}(undef, (srate*length(records),length(chans)));
     if readStatus
+        chans, statusIdx = check_status(header, chans)
         status = BDFStatus(srate*length(records))
     else
+        statusIdx = 0
         status = BDFStatus(0)
     end
+
+    raw = _read_method(fid, method, Vector{UInt8}, 3*header.nDataRecords*nChannels*srate)
+    data = Array{numPrecision}(undef, (srate*length(records),length(chans)));
 
     convert_data!(raw, data, status, srate, records, chans, nChannels, statusIdx, scaleFactors, offsets, tasks)
     
