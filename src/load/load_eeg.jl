@@ -334,13 +334,8 @@ end
 
 
 function read_eeg_data(fid::IO, header::EEGHeader, markers::EEGMarkers, numPrecision, chanSelect, chanIgnore, timeSelect, method, tasks)
-    if header.binary == Int16
-        bytes = 2
-    elseif header.binary == Float32
-        bytes = 4
-    end
-    
     # Calculate the size of data (as it's not in the header)
+    bytes = sizeof(header.binary)
     size = Int(position(seekend(fid))/bytes)
     seekstart(fid)
 

@@ -103,3 +103,13 @@ end
 function _get_offsets(header, numPrecision::Type{ <: Integer}, scaleFactors)
     return round.(numPrecision, header.physMin .- (header.digMin .* scaleFactors))
 end
+
+# Calculate buffer size close to requested memory size and number of records that fit in it.
+function _get_buffer_size(memSize, recSize)
+    buffSize = memSize + recSize/2
+    buffSize = Int(buffSize - buffSize%recSize)
+    buffSize == 0 ? buffSize = recSize : nothing
+    nRecords = Int(buffSize/recSize)
+
+    return buffSize, nRecords
+end

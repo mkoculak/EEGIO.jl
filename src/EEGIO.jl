@@ -21,7 +21,7 @@ include("load/load_bdf.jl")
 include("save/save_bdf.jl")
 export BDF, BDFHeader, read_bdf, write_bdf
 
-#EDF files
+# EDF files
 include("formats/EDF.jl")
 include("load/load_edf.jl")
 include("save/save_edf.jl")

@@ -1,5 +1,5 @@
 
-function write_eeg(f::String, eeg::EEG; overwrite=false, method="mmap", forceFloat=false)
+function write_eeg(f::String, eeg::EEG; forceFloat=false, overwrite=false, method=:Direct, tasks=1)
     # Get the name for all three files
     path, file = splitdir(f)
     filename, ext = splitext(file)
@@ -28,7 +28,7 @@ function write_eeg(f::String, eeg::EEG; overwrite=false, method="mmap", forceFlo
 
     # Write the data file
     open(feeg, "w+", lock = false) do fidd
-        write_eeg_data(fidd, eeg.header, eeg.data, method, forceFloat)
+        write_eeg_data(fidd, eeg.header, eeg.data, forceFloat, method, tasks)
     end
 end
 
@@ -136,9 +136,9 @@ function write_eeg_markers(fid::IO, filename::String, markers::EEGMarkers)
 end
 
 # Writing the EEG data
-function write_eeg_data(fid::IO, header::EEGHeader, data::Array, method::String, forceFloat::Bool)
+function write_eeg_data(fid::IO, header::EEGHeader, data, forceFloat, method, tasks)
     channels = length(header.channels["name"])
-    samples = size(data)[1]
+    samples = size(data, 1)
 
 
     if forceFloat
@@ -147,43 +147,50 @@ function write_eeg_data(fid::IO, header::EEGHeader, data::Array, method::String,
         binary = header.binary
     end
 
-    if method == "mmap"
-        raw = Mmap.mmap(fid, Matrix{binary}, (channels, samples))
-        write_data!(raw, data, header.channels["resolution"], samples)
-        finalize(raw)
-    elseif method == "sequential"
-        buffer = Vector{binary}(undef, channels)
-        for row in eachrow(data)
-            write_data!(fid, buffer, row, header.channels["resolution"])
-        end
-    else
-        error("Unknown writing method: $method")
+    output = _read_method(fid, method, Matrix{binary}, (channels, samples))
+
+    write_eeg_data(output, data, samples, header.channels["resolution"], binary, tasks)
+
+end
+
+# Writing the EEG data using mmap
+function write_eeg_data(output::Array, data, samples, resolution, binary, tasks)
+    @tasks for sample in 1:samples
+        @set ntasks = tasks
+
+        write_sample!(output, data, sample, sample, resolution)
     end
 
+    finalize(output)
+end
+
+# Writing the EEG data using sequential IO
+function write_eeg_data(output::IO, data, samples, resolution, binary, tasks)
+
+    # Make a buffer holding around 512k of data
+    sampleSize = sizeof(binary) * length(resolution)
+    memSize = 512_000
+    buffSize, nSamples = _get_buffer_size(memSize, sampleSize)
+
+    buffer = Array{binary}(undef, (length(resolution), buffSize))
+
+    for chunk in collect(chunks(1:samples, size=nSamples))
+        buffPointer = 1
+        for sample in chunk
+            write_sample!(buffer, data, buffPointer, sample, resolution)
+            buffPointer += 1
+        end
+
+        @inbounds write(output, view(buffer, :, 1:length(chunk)))
+    end
 end
 
 # Writing Float32 data sample point (one row) at a time.
-function write_data!(raw::Array{Float32}, data::Array, resolution::Vector{Float64}, samples::Integer)
-    Threads.@threads for sample=1:samples
-        @inbounds @views raw[:,sample] .= data[sample,:] ./ resolution
-    end
+function write_sample!(output::Array{Float32}, data, oSample, dSample, resolution)
+    @inbounds @views output[:,oSample] .= data[dSample,:] ./ resolution
 end
 
 # Writing Int16 data sample point (one row) at a time.
-function write_data!(raw::Array{Int16}, data::Array, resolution::Vector{Float64}, samples::Integer)
-    Threads.@threads for sample=1:samples
-        @inbounds @views raw[:,sample] .= round.(Int16, data[sample,:] ./ resolution)
-    end
-end
-
-# Writing Float32 data in a sequential manner.
-function write_data!(fid::IO, buffer::Vector{Float32}, data, resolution::Vector{Float64})
-    @inbounds @views buffer .= data ./ resolution
-    write(fid, buffer)
-end
-
-# Writing Int16 data in a sequential manner.
-function write_data!(fid::IO, buffer::Vector{Int16}, data, resolution::Vector{Float64})
-    @inbounds @views buffer .= round.(Int16, data ./ resolution)
-    write(fid, buffer)
+function write_sample!(output::Array{Int16}, data, oSample, dSample, resolution)
+    @inbounds @views output[:,oSample] .= round.(Int16, data[dSample,:] ./ resolution)
 end

@@ -139,14 +139,9 @@ function write_bdf_data(fid::IO, data, status, records, channels, samples, scale
     # is more efficient than writing the whole array at once.
     # Here we determine the size of chunk that is a multiple of record size and closest
     # to 512k which is used as a default.
-    buffer = buffer + recordSize/2
-    buffer = Int(buffer - buffer%recordSize)
-    if buffer == 0
-        buffer = recordSize
-    end
-    recNum = Int(buffer/recordSize)
+    buffSize, recNum = _get_buffer_size(buffer, recordSize)
     
-    output = Vector{UInt8}(undef, buffer)
+    output = Vector{UInt8}(undef, buffSize)
 
     for chunk in collect(chunks(1:records, size=recNum))
         pointer = 1
